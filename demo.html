@@ -454,7 +454,7 @@ function pickVoice(){
 }
 if(synth){ pickVoice(); synth.onvoiceschanged = pickVoice; }
 
-/* Áudios gravados (opcional): audio/roteiro.json + audio/0001.mp3, 0002.mp3…
+/* Áudios gravados (opcional): audios/0001.mp3, 0002.mp3…
    Se existirem, cada frase gravada toca no lugar da voz sintética. */
 const norm = t => t.trim().replace(/\s+/g, " ");
 const splitS = t => (t.match(/[^.!?…]+[.!?…]*/g) || [t]).map(norm).filter(Boolean);
@@ -463,9 +463,9 @@ const ROTEIRO = {"0001": "Era uma vez três porquinhos irmãos: Cícero, o mais 
 let REC = null;
 (function(){
   const probe = new Audio(); probe.preload = "metadata";
-  probe.onloadedmetadata = () => { REC = new Map(Object.entries(ROTEIRO).map(([n, t]) => [norm(t), `audio/${n}.mp3`])); };
+  probe.onloadedmetadata = () => { REC = new Map(Object.entries(ROTEIRO).map(([n, t]) => [norm(t), `audios/${n}.mp3`])); };
   probe.onerror = () => { REC = null; };
-  probe.src = "audio/0001.mp3";
+  probe.src = "audios/0001.mp3";
 })();
 
 let sayToken = 0, curAudio = null;
