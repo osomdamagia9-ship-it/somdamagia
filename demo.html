@@ -195,7 +195,6 @@ button{font:inherit;cursor:pointer}
       <button class="cbtn" data-act="repeat">↻ Repetir</button>
       <button class="cbtn" data-act="hint">💡 Dica</button>
       <button class="cbtn" data-act="mute" id="muteBtn">🔊 Voz ligada</button>
-      <select class="cbtn" id="voiceSel" aria-label="Escolher a voz do narrador" title="Voz do narrador (★ = mais natural)" hidden></select>
     </div>
   </div>
 
@@ -211,7 +210,8 @@ button{font:inherit;cursor:pointer}
     <div class="rainbow" id="splashTitle"></div>
     <p>Onde o toque vira voz e a imaginação ganha vida.<br><b style="color:var(--navy)">Demonstração interativa do tabuleiro “Os Três Porquinhos”.</b></p>
     <button class="big" id="startBtn">▶ Começar a história</button>
-    <p class="small-note">🔊 Ligue o som. Os comandos são falados e também aparecem escritos na legenda.</p>
+    <p class="small-note" id="audioError" role="alert" hidden></p>
+    <p class="small-note">🔊 As falas usam os áudios gravados na pasta audios.</p>
   </div>
 </div>
 
@@ -427,84 +427,124 @@ for(const [id,s] of Object.entries(SLOTS)){
 }
 
 /* =========================================================
-   ÁUDIO: VOZ + EFEITOS
+   ÁUDIO GRAVADO + EFEITOS
    ========================================================= */
-let muted = false, voice = null, actx = null;
-const synth = window.speechSynthesis;
-const RATE = 0.95, PITCH = 1.05;
-/* Escolhe a voz mais natural disponível (vozes "Natural/Online/Neural" do Edge e "Google" do Chrome soam bem melhor) */
-function voiceScore(v){
-  let sc = 0;
-  if(/pt-BR/i.test(v.lang)) sc += 10; else if(/^pt/i.test(v.lang)) sc += 2;
-  if(/natural|neural|online/i.test(v.name)) sc += 8;
-  if(/google/i.test(v.name)) sc += 5;
-  if(/francisca|thalita|antonio|luciana|camila|vitoria|ricardo/i.test(v.name)) sc += 3;
-  return sc;
-}
-function ptVoices(){ return synth ? synth.getVoices().filter(v => /^pt/i.test(v.lang)).sort((a,b) => voiceScore(b) - voiceScore(a)) : []; }
-function pickVoice(){
-  const vs = ptVoices(); if(!vs.length) return;
-  let saved = null; try{ saved = localStorage.getItem("somMagiaVoz"); }catch(e){}
-  voice = vs.find(v => v.name === saved) || vs[0];
-  const sel = document.getElementById("voiceSel");
-  if(sel){
-    sel.innerHTML = vs.map(v => `<option value="${v.name}">${v.name.replace(/Microsoft |Online |\(Natural\)| - Portuguese \(Brazil\)|Português do Brasil/gi,"").trim() || v.name}${/natural|neural|online|google/i.test(v.name) ? " ★" : ""}</option>`).join("");
-    sel.value = voice.name; sel.hidden = false;
-  }
-}
-if(synth){ pickVoice(); synth.onvoiceschanged = pickVoice; }
+let muted = false, actx = null;
 
-/* Áudios gravados (opcional): audios/0001.mp3, 0002.mp3…
-   Se existirem, cada frase gravada toca no lugar da voz sintética. */
+/* A demonstração usa exclusivamente as gravações em audios/. */
 const norm = t => t.trim().replace(/\s+/g, " ");
 const splitS = t => (t.match(/[^.!?…]+[.!?…]*/g) || [t]).map(norm).filter(Boolean);
-/* roteiro embutido: funciona abrindo o arquivo direto no PC (file://) e no GitHub Pages */
-const ROTEIRO = {"0001": "Era uma vez três porquinhos irmãos: Cícero, o mais novo, Heitor, o do meio, e Prático, o mais velho.", "0002": "Um dia, eles resolveram construir suas próprias casas.", "0003": "Vamos contar essa história juntos?", "0004": "Ouça cada comando e encaixe a peça certa no tabuleiro.", "0005": "Cícero, o porquinho mais novo, era muito preguiçoso.", "0006": "Ele construiu uma casa bem rapidinho, toda feita de palha.", "0007": "Encontre a Casa de Palha e encaixe no primeiro espaço, perto do Início.", "0008": "Muito bem!", "0009": "A casa de palha ficou pronta.", "0010": "Ela era fofinha...", "0011": "mas bem fraquinha.", "0012": "Agora coloque o Cícero na frente da sua casa de palha.", "0013": "Isso!", "0014": "O Cícero foi logo deitar na rede, todo contente.", "0015": "Heitor, o porquinho do meio, juntou galhos e tábuas e construiu uma casa de madeira.", "0016": "Encontre a Casa de Madeira e encaixe no meio do tabuleiro.", "0017": "Toc, toc, toc!", "0018": "A casa de madeira ficou de pé...", "0019": "mas balançava um pouquinho.", "0020": "Coloque o Heitor na frente da casa de madeira.", "0021": "O Heitor também foi brincar.", "0022": "Prático, o porquinho mais velho, era trabalhador e inteligente.", "0023": "Ele trabalhou com calma o dia inteiro e construiu uma casa de tijolos.", "0024": "Encaixe a Casa de Tijolos.", "0025": "Que casa forte!", "0026": "O Prático ficou muito orgulhoso do seu trabalho.", "0027": "Coloque o Prático ao lado da casa de tijolos.", "0028": "Perfeito!", "0029": "Agora Cícero, Heitor e Prático têm suas casas.", "0030": "Mas então...", "0031": "apareceu o Lobo Mau, com muita fome!", "0032": "Encontre o Lobo Mau e encaixe no alto do tabuleiro.", "0033": "Ih!", "0034": "O Lobo Mau chegou!", "0035": "Ele foi até a casa de palha e disse: vou soprar, soprar, e a sua casa derrubar!", "0036": "A casa de palha foi embora com o vento.", "0037": "O Cícero correu para a casa de madeira do seu irmão Heitor.", "0038": "Mas o lobo foi até lá e soprou mais forte ainda...", "0039": "Não sobrou nem uma tábua.", "0040": "Cícero e Heitor correram para a casa de tijolos do irmão mais velho, o Prático!", "0041": "O lobo soprou, soprou, e soprou...", "0042": "Mas a casa de tijolos nem se mexeu!", "0043": "O lobo ficou tão cansado que desistiu e foi embora correndo.", "0044": "E Cícero, Heitor e Prático viveram felizes e seguros na casa de tijolos.", "0045": "Fim!", "0046": "Fuuuu!", "0047": "A casa de palha caiu!", "0048": "Agora retire a Casa de Palha do tabuleiro.", "0049": "Craaac!", "0050": "A casa de madeira também caiu!", "0051": "Retire a Casa de Madeira do tabuleiro.", "0052": "Dica: procure a Casa de Palha.", "0053": "Ele tem textura macia e riscadinha, como fios de capim seco.", "0054": "O encaixe dela fica perto da placa de Início, ao lado do módulo de áudio.", "0055": "Casa de Palha.", "0056": "Textura macia e riscadinha, como fios de capim seco.", "0057": "Agora toque no encaixe onde ele deve ficar.", "0058": "Este é o encaixe da Casa de Palha.", "0059": "Quase!", "0060": "A Casa de Palha é a peça certa, mas o encaixe fica em outro lugar.", "0061": "Dica: procure o Cícero, que tem o macacão com um botão.", "0062": "Ele tem orelhas pontudas, focinho redondo e um botão no macacão.", "0063": "O encaixe dele fica logo abaixo da casa de palha.", "0064": "Cícero, que tem o macacão com um botão.", "0065": "Orelhas pontudas, focinho redondo e um botão no macacão.", "0066": "Este é o encaixe do Cícero.", "0067": "O Cícero é a peça certa, mas o encaixe fica em outro lugar.", "0068": "Dica: procure a Casa de Madeira.", "0069": "Ela tem tábuas com ranhuras compridas, deitadas uma sobre a outra.", "0070": "O encaixe dela fica no meio do tabuleiro, logo abaixo da placa com o nome da história.", "0071": "Casa de Madeira.", "0072": "Tábuas com ranhuras compridas, deitadas uma sobre a outra.", "0073": "Agora toque no encaixe onde ela deve ficar.", "0074": "Este é o encaixe da Casa de Madeira.", "0075": "A Casa de Madeira é a peça certa, mas o encaixe fica em outro lugar.", "0076": "Dica: procure o Heitor, que tem o macacão com dois botões.", "0077": "Ele tem orelhas pontudas, focinho redondo e dois botões no macacão.", "0078": "O encaixe dele fica logo abaixo da casa de madeira.", "0079": "Heitor, que tem o macacão com dois botões.", "0080": "Orelhas pontudas, focinho redondo e dois botões no macacão.", "0081": "Este é o encaixe do Heitor.", "0082": "O Heitor é a peça certa, mas o encaixe fica em outro lugar.", "0083": "Dica: procure a Casa de Tijolos.", "0084": "Ela tem relevo quadriculado, como tijolinhos, e uma chaminé no telhado.", "0085": "O encaixe dela fica do lado direito, mais perto do fim do caminho.", "0086": "Casa de Tijolos.", "0087": "Relevo quadriculado, como tijolinhos, e uma chaminé no telhado.", "0088": "Este é o encaixe da Casa de Tijolos.", "0089": "A Casa de Tijolos é a peça certa, mas o encaixe fica em outro lugar.", "0090": "Dica: procure o Prático, que tem o macacão com três botões.", "0091": "Ele tem orelhas pontudas, focinho redondo e três botões no macacão.", "0092": "O encaixe dele fica à direita da casa de tijolos.", "0093": "Prático, que tem o macacão com três botões.", "0094": "Orelhas pontudas, focinho redondo e três botões no macacão.", "0095": "Este é o encaixe do Prático.", "0096": "O Prático é a peça certa, mas o encaixe fica em outro lugar.", "0097": "Dica: procure o Lobo Mau.", "0098": "Ele tem orelhas grandes e pontudas, focinho comprido e pelo áspero.", "0099": "O encaixe dele fica no canto de cima, do lado direito.", "0100": "Lobo Mau.", "0101": "Orelhas grandes e pontudas, focinho comprido e pelo áspero.", "0102": "Este é o encaixe do Lobo Mau.", "0103": "O Lobo Mau é a peça certa, mas o encaixe fica em outro lugar.", "0104": "A casa de palha foi feita num instante.", "0105": "Era fofinha, mas bem fraquinha.", "0106": "Cícero é o porquinho mais novo e preguiçoso.", "0107": "Terminou a casa de palha num instante e foi descansar.", "0108": "A casa de madeira foi feita de galhos e tábuas.", "0109": "Ficou de pé, mas balançava um pouquinho.", "0110": "Heitor é o porquinho do meio.", "0111": "Achou que sua casa de madeira estava ótima e foi brincar.", "0112": "A casa de tijolos levou o dia inteiro para ficar pronta.", "0113": "Era muito forte.", "0114": "Prático é o porquinho mais velho, trabalhador e inteligente.", "0115": "Construiu a casa de tijolos com calma e capricho.", "0116": "O Lobo Mau apareceu com muita fome.", "0117": "Hmm, essa peça é a Casa de Palha.", "0118": "A vez dela ainda vai chegar!", "0119": "Agora estamos procurando o Cícero, que tem o macacão com um botão.", "0120": "Agora estamos procurando a Casa de Madeira.", "0121": "Agora estamos procurando o Heitor, que tem o macacão com dois botões.", "0122": "Agora estamos procurando a Casa de Tijolos.", "0123": "Agora estamos procurando o Prático, que tem o macacão com três botões.", "0124": "Agora estamos procurando o Lobo Mau.", "0125": "Hmm, essa peça é o Cícero, que tem o macacão com um botão.", "0126": "Agora estamos procurando a Casa de Palha.", "0127": "Hmm, essa peça é a Casa de Madeira.", "0128": "Hmm, essa peça é o Heitor, que tem o macacão com dois botões.", "0129": "Hmm, essa peça é a Casa de Tijolos.", "0130": "Hmm, essa peça é o Prático, que tem o macacão com três botões.", "0131": "Hmm, essa peça é o Lobo Mau.", "0132": "Lembre-se: a Casa de Palha caiu.", "0133": "Tire a peça do encaixe e coloque fora do tabuleiro.", "0134": "Dica: A Casa de Palha está caída no seu encaixe.", "0135": "Segure a peça e puxe para fora do tabuleiro.", "0136": "Lembre-se: a Casa de Madeira caiu.", "0137": "Dica: A Casa de Madeira está caída no seu encaixe.", "0138": "Ela tem textura macia e riscadinha, como fios de capim seco."};
-let REC = null;
-(function(){
-  const probe = new Audio(); probe.preload = "metadata";
-  probe.onloadedmetadata = () => { REC = new Map(Object.entries(ROTEIRO).map(([n, t]) => [norm(t), `audios/${n}.mp3`])); };
-  probe.onerror = () => { REC = null; };
-  probe.src = "audios/0001.mp3";
-})();
+let REC = new Map();
+let audioLoadError = null;
+const startBtn = $("#startBtn");
+async function loadAudioManifest(){
+  startBtn.disabled = true;
+  startBtn.textContent = "Carregando áudios...";
+  try{
+    const response = await fetch("audios/roteiro.json");
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    const roteiro = await response.json();
+    const entries = Object.entries(roteiro);
+    if(!entries.length || entries.some(([id, text]) => !/^\d{4}$/.test(id) || typeof text !== "string" || !text.trim())){
+      throw new Error("roteiro.json inválido");
+    }
+    REC = new Map(entries.map(([id, text]) => [norm(text), `audios/${id}.mp3`]));
+    startBtn.disabled = false;
+    startBtn.textContent = "▶ Começar a história";
+  } catch(error){
+    audioLoadError = error;
+    console.error("Não foi possível carregar audios/roteiro.json:", error);
+    startBtn.disabled = true;
+    startBtn.textContent = "Áudios indisponíveis";
+    $("#audioError").textContent = "Não foi possível carregar audios/roteiro.json. Abra a demonstração pelo site ou por um servidor local.";
+    $("#audioError").hidden = false;
+  }
+}
+const audioReady = loadAudioManifest();
 
 let sayToken = 0, curAudio = null;
 const pause = ms => new Promise(r => setTimeout(r, ms));
 function talking(on){ grill.classList.toggle("talk", on); capIco.classList.toggle("talk", on); }
-function stopVoice(){ if(synth) synth.cancel(); if(curAudio){ curAudio.pause(); curAudio = null; } }
+function stopVoice(){ if(curAudio){ curAudio.pause(); curAudio = null; } }
 function playFile(url, my){
   return new Promise(res => {
-    const a = new Audio(url); curAudio = a; let d = false;
-    const f = v => { if(!d){ d = true; clearInterval(iv); res(v); } };
-    const iv = setInterval(() => { if(my !== sayToken){ a.pause(); f(false); } }, 80);
-    a.onended = () => f(true); a.onerror = () => f(null);
-    a.play().catch(() => f(null));
-  });
-}
-function ttsPart(t, my){
-  return new Promise(res => {
-    if(!synth) return setTimeout(() => res(true), t.length * 62);
-    const u = new SpeechSynthesisUtterance(t);
-    u.lang = "pt-BR"; if(voice) u.voice = voice; u.rate = RATE; u.pitch = PITCH;
-    let d = false; const f = v => { if(!d){ d = true; res(v); } };
-    u.onend = () => f(true);
-    u.onerror = e => f(e.error === "interrupted" || e.error === "canceled" ? false : true);
-    synth.speak(u);
-    setTimeout(() => f(true), t.length * 120 + 3000);
+    let audio = null, objectUrl = null, done = false;
+    const controller = new AbortController();
+    const finish = value => {
+      if(done) return;
+      done = true;
+      clearInterval(iv);
+      if(audio){
+        audio.onended = null; audio.onerror = null;
+        if(value !== true) audio.pause();
+        if(curAudio === audio) curAudio = null;
+      }
+      if(objectUrl) URL.revokeObjectURL(objectUrl);
+      res(value);
+    };
+    const iv = setInterval(() => {
+      if(my !== sayToken){ controller.abort(); finish(false); }
+    }, 80);
+    fetch(url, {signal:controller.signal})
+      .then(response => {
+        if(!response.ok) throw new Error(`HTTP ${response.status} ao buscar ${url}`);
+        return response.blob();
+      })
+      .then(blob => {
+        if(done || my !== sayToken){ finish(false); return; }
+        objectUrl = URL.createObjectURL(blob);
+        audio = new Audio(objectUrl); curAudio = audio;
+        audio.onended = () => finish(true);
+        audio.onerror = () => finish(null);
+        audio.play().catch(() => finish(null));
+      })
+      .catch(error => {
+        if(!done){
+          if(my === sayToken) console.error(`Não foi possível buscar ${url}:`, error);
+          finish(null);
+        }
+      });
   });
 }
 async function say(text, {cancel=true} = {}){
   capText.textContent = text;
   const my = ++sayToken;
   if(cancel){ stopVoice(); await pause(60); }
+  if(audioLoadError){ talking(false); return false; }
   if(muted){ talking(false); await pause(Math.max(1600, text.length * 62)); return my === sayToken; }
   talking(true);
   for(const part of splitS(text)){
     if(my !== sayToken) return false;
-    let ok = null;
-    if(REC && REC.has(part)) ok = await playFile(REC.get(part), my);
-    if(ok === null) ok = await ttsPart(part, my);
-    if(ok === false || my !== sayToken) return false;
+    const audio = REC.get(part);
+    if(!audio){
+      audioLoadError = new Error(`Áudio não mapeado para a frase: ${part}`);
+      console.error("Áudio ausente em audios/roteiro.json:", audioLoadError);
+      const errorText = "Áudio não encontrado para esta fala. Confira audios/roteiro.json e os arquivos MP3.";
+      capText.textContent = errorText;
+      $("#audioError").textContent = errorText;
+      $("#audioError").hidden = false;
+      startBtn.disabled = true;
+      startBtn.textContent = "Áudios indisponíveis";
+      locked = true;
+      talking(false);
+      return false;
+    }
+    const ok = await playFile(audio, my);
+    if(ok !== true || my !== sayToken){
+      if(ok === null && my === sayToken){
+        audioLoadError = new Error(`Não foi possível reproduzir ${audio}`);
+        console.error(`Não foi possível reproduzir ${audio}`);
+        const errorText = `Não foi possível carregar ${audio}. Confira se o arquivo existe na pasta audios.`;
+        capText.textContent = errorText;
+        $("#audioError").textContent = errorText;
+        $("#audioError").hidden = false;
+        startBtn.disabled = true;
+        startBtn.textContent = "Áudios indisponíveis";
+        locked = true;
+        talking(false);
+      }
+      return false;
+    }
     await pause(/[!?]$/.test(part) ? 220 : /…|\.\.\.$/.test(part) ? 380 : 150);
   }
   if(my === sayToken) talking(false);
@@ -915,19 +955,17 @@ function reset(){
   renderPieces(); renderProgress();
 }
 async function start(){
+  await audioReady;
+  if(audioLoadError) return;
   ac();
   $("#splash").classList.add("hidden"); $("#endScreen").classList.add("hidden");
   reset();
   const ok = await say(INTRO);
+  if(!ok){ $("#splash").classList.remove("hidden"); return; }
   locked = false;
-  if(ok !== false || step === 0) announce();
+  announce();
 }
 $("#startBtn").addEventListener("click", start);
-$("#voiceSel").addEventListener("change", e => {
-  voice = ptVoices().find(v => v.name === e.target.value) || voice;
-  try{ localStorage.setItem("somMagiaVoz", voice.name); }catch(err){}
-  say("Olá! Esta é a minha voz para contar a história.");
-});
 $("#againBtn").addEventListener("click", start);
 reset();
 })();
