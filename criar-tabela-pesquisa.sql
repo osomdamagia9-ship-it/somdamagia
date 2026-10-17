@@ -1,5 +1,5 @@
--- O SOM DA MAGIA: tabela da pesquisa de opinião
--- Rode uma vez no Supabase: menu "SQL Editor" > New query > cole tudo > Run.
+-- O SOM DA MAGIA: tabelas da pesquisa e da moderação de comentários.
+-- Rode uma vez no Supabase: SQL Editor > New query > cole tudo > Run.
 
 create table if not exists public.pesquisa (
   id                 bigint generated always as identity primary key,
@@ -33,3 +33,37 @@ drop policy if exists "equipe le respostas" on public.pesquisa;
 create policy "equipe le respostas"
   on public.pesquisa for select to authenticated
   using (true);
+
+grant insert on public.pesquisa to anon;
+grant select on public.pesquisa to authenticated;
+
+create table if not exists public.comentarios (
+  id         bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  nome       text not null default 'Visitante' check (char_length(nome) <= 40),
+  texto      text not null check (char_length(texto) between 1 and 500),
+  tipo       text not null default 'comentario' check (tipo in ('comentario','ideia')),
+  aprovado   boolean not null default false
+);
+
+alter table public.comentarios enable row level security;
+
+drop policy if exists "visitantes enviam comentarios" on public.comentarios;
+create policy "visitantes enviam comentarios"
+  on public.comentarios for insert to anon
+  with check (aprovado = false);
+
+drop policy if exists "visitantes leem comentarios aprovados" on public.comentarios;
+create policy "visitantes leem comentarios aprovados"
+  on public.comentarios for select to anon
+  using (aprovado = true);
+
+drop policy if exists "equipe gerencia comentarios" on public.comentarios;
+create policy "equipe gerencia comentarios"
+  on public.comentarios for all to authenticated
+  using (true)
+  with check (true);
+
+grant insert on public.comentarios to anon;
+grant select on public.comentarios to anon;
+grant select, update, delete on public.comentarios to authenticated;
